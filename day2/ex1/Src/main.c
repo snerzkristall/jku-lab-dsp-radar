@@ -32,6 +32,7 @@
 #include "wm8731.h"
 #include <math.h>
 #include "arm_math.h"
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,11 +54,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
-static int16_t* in_buf;
-static int16_t* out_buf;
-static int16_t* left_buf;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -112,9 +108,9 @@ int main(void)
   wm8731_dev.startAdcDma(&wm8731_dev); //start audio input
 
   // initialize buffers
-  in_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
-  out_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
-  left_buf = (int16_t *)calloc(HALF_BUF_SIZE, sizeof(int16_t));
+  int16_t *in_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
+  int16_t *out_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
+  int16_t *uart_buf = (int16_t *)calloc(HALF_BUF_SIZE, sizeof(int16_t));
 
   /* USER CODE END 2 */
 
@@ -127,10 +123,11 @@ int main(void)
     wm8731_getInBuf(&wm8731_dev, &in_buf);
 
     // transmit left audio input channel via UART
-    for(int i = 0; i < HALF_BUF_SIZE; i++) left_buf[i] = in_buf[2*i];
-    HAL_UART_Transmit(&huart4, &left, HALF_BUF_SIZE, HAL_MAX_DELAY);
+    for(int i = 0; i < HALF_BUF_SIZE; i++) uart_buf[i] = in_buf[2*i];
+    HAL_UART_Transmit(&huart4, &uart_buf, HALF_BUF_SIZE, HAL_MAX_DELAY);
 
     // copy input buffer into output buffer
+    memcpy(out_buf, in_buf, BUF_SIZE*sizeof(int16_t));
     wm8731_waitOutBuf(&wm8731_dev);
     wm8731_putOutBuf(&wm8731_dev, &out_buf);
 
@@ -141,7 +138,7 @@ int main(void)
   // free all global buffer pointers
   free(in_buf);
   free(out_buf);
-  free(left_buf);
+  free(uart_buf);
 
   /* USER CODE END 3 */
 }

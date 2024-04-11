@@ -56,9 +56,6 @@
 
 /* USER CODE BEGIN PV */
 
-// BUFFER
-static int16_t* sine_buf;
-
 // CHIRP
 static const float64_t fs = 48000.;
 static const float64_t fstart = 200.;
@@ -68,6 +65,7 @@ static const float64_t slope = 160;
 static int32_t period_offset = 0;
 static float64_t phi = 0;
 static int32_t n = 0;
+static const int32_t n_max = (int32_t)(fs * t_full);
 static float64_t t;
 
 static const float64_t amplitude = 0.1;
@@ -78,7 +76,7 @@ static const float64_t amplitude = 0.1;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-void get_sin(void);
+void get_sin(int16_t *buf);
 
 /* USER CODE END PFP */
 
@@ -128,7 +126,7 @@ int main(void)
   wm8731_dev.startDacDma(&wm8731_dev); //start audio output
 
   // init buffer
-  sine_buf = (uint16_t *)calloc(BUF_SIZE, sizeof(uint16_t));
+  int16_t *sine_buf = (uint16_t *)calloc(BUF_SIZE, sizeof(uint16_t));
 
   /* USER CODE END 2 */
 
@@ -136,7 +134,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    get_sin(); // calc chirp in buffer
+    get_sin(sine_buf); // calc chirp frame
 
     wm8731_waitOutBuf(&wm8731_dev);
     wm8731_putOutBuf(&wm8731_dev, &sine_buf); // put buffer
@@ -145,6 +143,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
   }
 
+  // free buffer
   free(sine_buf);
 
   /* USER CODE END 3 */
@@ -207,14 +206,12 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-void get_sin(void) {
-  int32_t n_max = (int32_t)(fs * t_full);
-
+void get_sin(int16_t *buf){
   for(int i=0; i < HALF_BUF_SIZE; i++) {
     t = n / fs;
     phi = 2 * PI * (fstart * t + slope * t * t / 2.0);
-    sine_buf[2*i] = (int16_t) (cos(phi) * (amplitude * MAX_AMP));
-    sine_buf[2*i+1] = sine[2*i];
+    buf[2*i] = (int16_t) (cos(phi) * (amplitude * MAX_AMP));
+    buf[2*i+1] = buf[2*i];
     n = ++n % n_max;
   }
 }

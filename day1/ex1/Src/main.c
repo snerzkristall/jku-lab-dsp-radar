@@ -238,12 +238,12 @@ void reset_7seg(void) {
 void snake_movement(void) {
   uint8_t move_type = --moves % 6; // calc next move
   switch(move_type){ // set single led
-    case 5: HAL_GPIO_WritePin(GPIOJ, SEGA_Pin, 1);
-    case 4: HAL_GPIO_WritePin(GPIOJ, SEGB_Pin, 1);
-    case 3: HAL_GPIO_WritePin(GPIOJ, SEGC_Pin, 1);
-    case 2: HAL_GPIO_WritePin(GPIOJ, SEGD_Pin, 1);
-    case 1: HAL_GPIO_WritePin(GPIOJ, SEGE_Pin, 1);
-    case 0: HAL_GPIO_WritePin(GPIOJ, SEGF_Pin, 1);
+    case 5: HAL_GPIO_WritePin(GPIOJ, SEGA_Pin, 1); break;
+    case 4: HAL_GPIO_WritePin(GPIOJ, SEGB_Pin, 1); break;
+    case 3: HAL_GPIO_WritePin(GPIOJ, SEGC_Pin, 1); break;
+    case 2: HAL_GPIO_WritePin(GPIOJ, SEGD_Pin, 1); break;
+    case 1: HAL_GPIO_WritePin(GPIOJ, SEGE_Pin, 1); break;
+    case 0: HAL_GPIO_WritePin(GPIOJ, SEGF_Pin, 1); break;
   }
 }
 

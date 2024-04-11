@@ -87,24 +87,6 @@ static const float32_t w_max = 2 * PI * 17000.0;
 static const float32_t w_min = 2 * PI * 3000.0;
 static const float32_t increment = 500.0 / fs;
 
-// BUFFERS
-static int16_t* in_buf;
-static int16_t* out_buf;
-static float32_t* fft_buf;
-static float32_t* ifft_buf;
-
-static float32_t* filter_coeff_buf;
-
-static float32_t* oladd_buf;
-static float32_t* overlap;
-
-static float32_t* shift_buf;
-static float32_t* shift_coeff_buf;
-static float32_t* shift_coeff_inv;
-
-// CMSIS LIB INSTANCE
-static arm_cfft_instance_f32 *S;
-
 // FLAGS
 static uint8_t fc_incr_flag = 0;
 static uint8_t fc_decr_flag = 1;
@@ -115,9 +97,8 @@ static uint8_t fc_decr_flag = 1;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-void init_buffers(void);
-void free_buffers(void);
-void overlap_add(void);
+void update_coeffs(float32_t *shift_coeff_buf, float32_t *shift_coeff_inv_buf);
+void overlap_add(float32_t *oladd_buf, float32_t *overlap_buf)
 void overlap_save(void);
 
 /* USER CODE END PFP */
@@ -168,12 +149,33 @@ int main(void)
   wm8731_dev.startDacDma(&wm8731_dev); //start audio output
   wm8731_dev.startAdcDma(&wm8731_dev); //start audio input
 
-  // init all global buffer pointers
-  init_buffers();
-
-  // CMSIS LIB
+  // CMSIS library FFT function
+  arm_cfft_instance_f32 *S;
   S = &arm_cfft_sR_f32_len256;
-  arm_cfft_f32(S, filter_coeff_buf, 0, 1);
+
+  // init all buffer pointers
+  int16_t *in_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
+  int16_t *out_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
+
+  float32_t *shift_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
+  float32_t *shift_coeff_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
+  float32_t *shift_coeff_inv = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
+  for (int i = 0; i < BUF_SIZE; i++){ // insert coeffs
+    shift_coeff_buf[2*i] = cos(wc*i);
+    shift_coeff_buf[2*i+1] = -sin(wc*i);
+    shift_coeff_inv_buf[2*i] = cos(wc*i);
+    shift_coeff_inv_buf[2*i+1] = sin(wc*i);
+  }
+
+  float32_t *fft_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
+  float32_t *ifft_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
+
+  float32_t *filter_coeff_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
+  for(int i = 0; i < N_COEFF, i++) filter_coeff_buf[2*i] = coeffs[i]; // insert coeffs
+  arm_cfft_f32(S, filter_coeff_buf, 0, 1); // transform to coeffs in spectrum
+
+  float32_t *oladd_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
+  float32_t *overlap_buf = (float32_t *)calloc(BUF_SIZE, sizeof(float32_t));
 
   /* USER CODE END 2 */
 
@@ -204,6 +206,7 @@ int main(void)
         memcpy(ifftbuf, fft_buf, 2*BUF_SIZE*sizeof(uint16_t)); // direct passthrough
         arm_cfft_f32(S, ifft_buf, 1, 1); // IFFT
         for(int i = 0; i < BUF_SIZE; i++) out_buf[i] = ifftbuf[i]; // put buffer
+        break;
 
       case FFT_OLADD:
         /**
@@ -219,8 +222,9 @@ int main(void)
         arm_cmplx_mult_cmplx_f32(fft_buf, filter_coeff_buf, ifft_buf, BUF_SIZE); // filter via spectrum
         arm_cfft_f32(S, ifft_buf, 1, 1); // IFFT
         memcpy(oladd_buf, ifftbuf, 2*BUF_SIZE*sizeof(float32_t)); // copy buffer
-        overlap_add();
+        overlap_add(oladd_buf, overlap_buf); // add and save overlap
         for(int i = 0; i < BUF_SIZE; i++) out_buf[i] = (int16_t)oladd_buf[i]; // put buffer
+        break;
 
       case BP_OLADD:
         /**
@@ -239,11 +243,17 @@ int main(void)
         arm_cmplx_mult_cmplx_f32(shift_buf, filter_coeff_buf, ifft_buf, BUF_SIZE); // filter via spectrum
         arm_cfft_f32(S, ifft_buf, 1, 1); // IFFT
         arm_cmplx_mult_cmplx_f32(ifft_buf, shift_coeff_inv_buf, oladd_buf, BUF_SIZE); // Down-Shift
-        overlap_add();
+        overlap_add(oladd_buf, overlap_buf); // add and save overlap
         for (int i = 0; i < BUF_SIZE; i++) out_buf[i] = (int16_t)oladd_buf[i]; // put buffer
-      
-      case FFT_OLSAVE: // TODO
-      case BP_OLSAVE: // TODO
+        break;
+
+      case FFT_OLSAVE:
+        // TODO
+        break;
+
+      case BP_OLSAVE:
+        // TODO
+        break;
     }
 
     // put output buffer
@@ -254,8 +264,17 @@ int main(void)
     /* USER CODE BEGIN 3 */
   }
 
-  // free all global buffer pointers
-  free_buffers();
+  // free all buffer pointers
+  free(in_buf);
+  free(out_buf);
+  free(fft_buf);
+  free(ifft_buf);
+  free(filter_coeff_buf);
+  free(oladd_buf);
+  free(overlap_buf);
+  free(shift_buf);
+  free(shift_coeff_buf);
+  free(shift_coeff_inv_buf);
 
   /* USER CODE END 3 */
 }
@@ -317,45 +336,7 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-void init_buffers(void){
-  // default IO
-  in_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
-  out_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
-  // fft
-  fft_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
-  ifft_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
-  // filter
-  filter_coeff_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
-  for(int i = 0; i < N_COEFF, i++) filter_coeff_buf[2*i] = coeffs[i]; // insert coeffs
-  // overlap-add
-  oladd_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
-  overlap_buf = (float32_t *)calloc(BUF_SIZE, sizeof(float32_t));
-  // shift
-  shift_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
-  shift_coeff_buf = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
-  shift_coeff_inv = (float32_t *)calloc(2*BUF_SIZE, sizeof(float32_t));
-  for (int i = 0; i < BUF_SIZE; i++){ // insert coeffs
-    shift_coeff_buf[2*i] = cos(wc*i);
-    shift_coeff_buf[2*i+1] = -sin(wc*i);
-    shift_coeff_inv_buf[2*i] = cos(wc*i);
-    shift_coeff_inv_buf[2*i+1] = sin(wc*i);
-  }
-}
-
-void free_buffers(void){
-  free(in_buf);
-  free(out_buf);
-  free(fft_buf);
-  free(ifft_buf);
-  free(filter_coeff_buf);
-  free(oladd_buf);
-  free(overlap_buf);
-  free(shift_buf);
-  free(shift_coeff_buf);
-  free(shift_coeff_inv_buf);
-}
-
-void overlap_add(void){
+void overlap_add(float32_t *oladd_buf, float32_t *overlap_buf){
   for(int i = 0; i < BUF_SIZE; i++) {
     oladd_buf[i] += overlap_buf[i]; // add saved overlap sample
     overlap_buf[i] = oladd_buf[BUF_SIZE+i]; // save new overlap sample
@@ -367,7 +348,7 @@ void overlap_save(void){
   return
 }
 
-void update_coeffs(void){
+void update_coeffs(float32_t *shift_coeff_buf, float32_t *shift_coeff_inv_buf){
   // calc new center frequency
   wc += (fc_incr_flag - fc_decr_flag) * increment * PI * 2;
   // upper and lower bound

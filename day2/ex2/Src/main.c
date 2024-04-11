@@ -77,36 +77,15 @@ static const float32_t coeffs[N_COEFF] = {
   -0.00113637, 0.00093461, 0.00184793, 0.00151232, 0.00051534,
   -0.0004301, -0.00089012, -0.00079491, -0.00030995};
 
-// DEFAULT BUFFERS
-static int16_t* in_buf;
-static int16_t* out_buf;
-
-// MANUAL OVERLAP ADD
-static float32_t* conv_buf_left;
-static float32_t* conv_buf_right;
-
-// LIBRARY FUNCTION
-static arm_fir_instance_f32 S_left;
-static arm_fir_instance_f32 S_right;
-static float32_t* pState_left;
-static float32_t* pState_right;
-static float32_t* lib_buf_left;
-static float32_t* lib_buf_out_left;
-static float32_t* lib_buf_right;
-static float32_t* lib_buf_out_right;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-void init_buffers(void);
-void free_buffers(void);
-void manual_conv(void);
-void manual_conv_perf(void);
-void overlap_add(int perf_flag);
-void overlap_add_lib(void);
+void manual_conv(int16_t *in_buf, float32_t *left_buf, float32_t *right_buf);
+void manual_conv_perf(int16_t *in_buf, float32_t *left_buf, float32_t *right_buf);
+void overlap_add(int16_t *in_buf, float32_t *left_buf, float32_t *right_buf, int16_t *out_buf, int perf_flag);
 
 /* USER CODE END PFP */
 
@@ -152,14 +131,27 @@ int main(void)
   struct wm8731_dev_s wm8731_dev;
   wm8731_init(&wm8731_dev, &i2c_dev, &hsai_BlockB1, &hsai_BlockA1, 0b00110100);
   
-  wm8731_dev.setup(&wm8731_dev, ADC8_DAC8); //initialize audio codec and set sampling rate
+  wm8731_dev.setup(&wm8731_dev, ADC48_DAC48); //initialize audio codec and set sampling rate
   wm8731_dev.startDacDma(&wm8731_dev); //start audio output
   wm8731_dev.startAdcDma(&wm8731_dev); //start audio input
 
-  // init all global buffer pointers
-  init_buffers();
+  // init buffers
+  int16_t *in_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
+  int16_t *out_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
+
+  float32_t *left_buf = (float32_t *)calloc(CONV_LEN, sizeof(float32_t));
+  float32_t *right_buf = (float32_t *)calloc(CONV_LEN, sizeof(float32_t));
   
-  // initialize library filter
+  float32_t *pState_left = (float32_t *)calloc(2*HALF_BUF_SIZE+N_COEFF-1, sizeof(float32_t));
+  float32_t *pState_right = (float32_t *)calloc(2*HALF_BUF_SIZE+N_COEFF-1, sizeof(float32_t));
+  float32_t *lib_left_buf = (float32_t *)calloc(HALF_BUF_SIZE, sizeof(float32_t));
+  float32_t *lib_left_out_buf = (float32_t *)calloc(HALF_BUF_SIZE, sizeof(float32_t));
+  float32_t *lib_right_buf = (float32_t *)calloc(HALF_BUF_SIZE, sizeof(float32_t));
+  float32_t *lib_right_out_buf = (float32_t *)calloc(HALF_BUF_SIZE, sizeof(float32_t));
+  
+  // init library filter
+  arm_fir_instance_f32 S_left;
+  arm_fir_instance_f32 S_right;
   arm_fir_init_f32(&S_left, N_COEFF, coeffs, pState_left, HALF_BUF_SIZE);
   arm_fir_init_f32(&S_right, N_COEFF, coeffs, pState_right, HALF_BUF_SIZE);
 
@@ -173,9 +165,27 @@ int main(void)
     wm8731_getInBuf(&wm8731_dev, &in_buf);
 
     switch (subtask){
-      case OVERLAP_ADD: overlap_add(0);
-      case OVERLAP_ADD_PERF: overlap_add(1);
-      case OVERLAP_ADD_LIB: overlap_add_lib();
+      case OVERLAP_ADD:
+        overlap_add(in_buf, left_buf, right_buf, out_buf, 0);
+        break;
+      case OVERLAP_ADD_PERF:
+        overlap_add(in_buf, left_buf, right_buf, out_buf, 1);
+        break;
+      case OVERLAP_ADD_LIB:
+        // copy current input frame into buffers
+        for(int i=0; i < HALF_BUF_SIZE; i++) {
+          lib_left_buf[i] = (float32_t)in_buf[2*i];
+          lib_right_buf[i] = (float32_t)in_buf[2*i];
+        }
+        // filter current frame
+        arm_fir_f32(&S_left, lib_left_buf, lib_buf_out_left, HALF_BUF_SIZE);
+        arm_fir_f32(&S_right, lib_right_buf, lib_buf_out_right, HALF_BUF_SIZE);
+        // copy result into output buffer
+        for(int i=0; i < HALF_BUF_SIZE; i++) {
+          out_buf[2*i] = (int16_t)lib_left_out_buf[i];
+          out_buf[2*i+1] = (int16_t)lib_right_out_buf[i];
+        }
+        break;
     }
 
     wm8731_waitOutBuf(&wm8731_dev);
@@ -185,8 +195,18 @@ int main(void)
     /* USER CODE BEGIN 3 */
   }
 
-  // free all global buffer pointers
-  free_buffers();
+  // free all buffer pointers
+  free(in_buf);
+  free(out_buf);
+  free(conv_left_buf);
+  free(conv_right_buf);
+  free(pState_left);
+  free(pState_right);
+  free(lib_left_buf);
+  free(lib_left_out_buf);
+  free(lib_right_buf);
+  free(lib_right_out_buf);
+
   /* USER CODE END 3 */
 }
 
@@ -247,95 +267,52 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-void init_buffers(void){
-  // default IO buffers
-  in_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
-  out_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
-  // manual conv
-  conv_buf_left = (float32_t *)calloc(CONV_LEN, sizeof(float32_t));
-  conv_buf_right = (float32_t *)calloc(CONV_LEN, sizeof(float32_t));
-  // lib filter
-  lib_buf_left = (float32_t *)calloc(HALF_BUF_SIZE, sizeof(float32_t));
-  lib_buf_out_left = (float32_t *)calloc(HALF_BUF_SIZE, sizeof(float32_t));
-  lib_buf_right = (float32_t *)calloc(HALF_BUF_SIZE, sizeof(float32_t));
-  lib_buf_out_right = (float32_t *)calloc(HALF_BUF_SIZE, sizeof(float32_t));
-  pState = (float32_t *)calloc(2*HALF_BUF_SIZE+N_COEFF-1, sizeof(float32_t));
-}
-
-void free_buffers(void){
-  free(in_buf);
-  free(out_buf);
-  free(conv_buf_left);
-  free(conv_buf_right);
-  free(lib_buf_left);
-  free(lib_buf_out_left);
-  free(lib_buf_right);
-  free(lib_buf_out_right);
-  free(pState);
-}
-
-void manual_conv(void) {
+void manual_conv(int16_t *in_buf, float32_t *left_buf, float32_t *right_buf){
   // reset convolution buffers
-  memset(conv_buf_left, 0, CONV_LEN*sizeof(float32_t));
-  memset(conv_buf_right, 0, CONV_LEN*sizeof(float32_t));
+  memset(left_buf, 0, CONV_LEN*sizeof(float32_t));
+  memset(right_buf, 0, CONV_LEN*sizeof(float32_t));
   // convolution
   for(int n=0; n < HALF_BUF_SIZE; n++) {
     for(int m=0; m < N_COEFF; m++) {
-      conv_buf_left[n+m] += (coeffs[m] * in_buf[2*n]);
-      conv_buf_right[n+m] += (coeffs[m] * in_buf[2*n+1]);
+      left_buf[n+m] += (coeffs[m] * in_buf[2*n]);
+      right_buf[n+m] += (coeffs[m] * in_buf[2*n+1]);
     }
   }
 }
 
-void manual_conv_perf(void) {
+void manual_conv_perf(int16_t *in_buf, float32_t *left_buf, float32_t *right_buf){
   // reset convolution buffers
-  memset(conv_buf_left, 0, CONV_LEN*sizeof(float32_t));
-  memset(conv_buf_right, 0, CONV_LEN*sizeof(float32_t));
+  memset(left_buf, 0, CONV_LEN*sizeof(float32_t));
+  memset(right_buf, 0, CONV_LEN*sizeof(float32_t));
   // convolution (only half of standard implementation inner loop runs)
   for(int n=0; n < HALF_BUF_SIZE; n++) {
     for(int m=0; m < N_COEFF/2; m++) {
-      conv_buf_left[n+m] += coeffs[m] * in_buf[2*n];
-      conv_buf_left[n+m+N_COEFF/2] += coeffs[m + N_COEFF/2]*in_buf[2*n];
-      conv_buf_right[n+m] += coeffs[m] * in_buf[2*n+1];
-      conv_buf_right[n+m+N_COEFF/2] += coeffs[m + N_COEFF/2]*in_buf[2*n+1];
+      left_buf[n+m] += coeffs[m] * in_buf[2*n];
+      left_buf[n+m+N_COEFF/2] += coeffs[m + N_COEFF/2] * in_buf[2*n];
+      right_buf[n+m] += coeffs[m] * in_buf[2*n+1];
+      right_buf[n+m+N_COEFF/2] += coeffs[m + N_COEFF/2] * in_buf[2*n+1];
     }
   }
 }
 
-void overlap_add(int perf_flag){
+void overlap_add(int16_t *in_buf, float32_t *left_buf, float32_t *right_buf, int16_t *out_buf, int perf_flag){
   // reset output buffer
   memset(out_buf, 0, BUF_SIZE*sizeof(int16_t));
   // add fading of previous frame
   for(int i=0; i < N_COEFF; i++){
-    out_buf[2*i] = conv_buf_left[i];
-    out_buf[2*i+1] = conv_buf_right[i];
+    out_buf[2*i] = left_buf[i];
+    out_buf[2*i+1] = right_buf[i];
   }
   // filter current frame
   if(perf_flag){
-    manual_conv_perf();
+    manual_conv_perf(in_buf, left_buf, right_buf);
   } else {
-    manual_conv();
+    manual_conv(in_buf, left_buf, right_buf);
   }
   // add filtering result of current frame
   for(int i=0; i < HALF_BUF_SIZE; i++){
-    out_buf[2*i] = (int16_t)conv_buf_left[i];
-    out_buf[2*i+1] = (int16_t)conv_buf_right[i];
-  }
-}
-
-void overlap_add_library(void) {
-  // copy current input frame into buffers
-  for(int i=0; i < HALF_BUF_SIZE; i++) {
-    lib_buf_left[i] = (float32_t)in_buf[2*i];
-    lib_buf_right[i] = (float32_t)in_buf[2*i];
-  }
-  // filter current frame
-  arm_fir_f32(&S_left, lib_buf_left, lib_buf_out_left, HALF_BUF_SIZE);
-  arm_fir_f32(&S_right, lib_buf_right, lib_buf_out_right, HALF_BUF_SIZE);
-  // copy result into output buffer
-  for(int i=0; i < HALF_BUF_SIZE; i++) {
-    out_buf[2*i] = (int16_t)lib_buf_out_left[i];
-    out_buf[2*i+1] = (int16_t)lib_buf_out_right[i];
+    out_buf[2*i] = (int16_t)left_buf[i];
+    out_buf[2*i+1] = (int16_t)right_buf[i];
   }
 }
 

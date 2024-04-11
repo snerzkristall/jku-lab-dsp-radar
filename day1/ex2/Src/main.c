@@ -70,9 +70,6 @@ static int16_t period_offset = 0;
 
 static const float64_t amplitude = 0.1;
 
-// BUFFER
-static int16_t* sine_buf;
-
 // LUT
 static const int16_t fmin = 100;
 static const int16_t sine_lut[LUT_SIZE] = {    0,   427,   856,  1285,  1713,  2142,  2569,  2997,  3424,  3850,
@@ -123,7 +120,7 @@ static const int16_t sine_lut[LUT_SIZE] = {    0,   427,   856,  1285,  1713,  2
  -12540,-12143,-11744,-11342,-10939,-10533,-10126, -9718, -9307, -8895,
   -8481, -8066, -7650, -7232, -6813, -6393, -5972, -5550, -5127, -4702,
   -4278, -3852, -3426, -2999, -2571, -2144, -1715, -1287,  -858,  -429};
-static const int1_t sine_lut_quarter[QLUT_SIZE] = { 0,   427,   856,  1285,  1713,  2142,  2569,  2997,  3424,  3850,
+static const int16_t sine_lut_quarter[QLUT_SIZE] = { 0,   427,   856,  1285,  1713,  2142,  2569,  2997,  3424,  3850,
    4276,  4700,  5125,  5548,  5970,  6391,  6811,  7230,  7648,  8064,
    8479,  8893,  9305,  9716, 10124, 10531, 10937, 11340, 11742, 12141,
   12538, 12933, 13326, 13717, 14105, 14491, 14875, 15256, 15634, 16010,
@@ -166,10 +163,10 @@ static float64_t im_Phi2_old;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-void sine_func(void);
-void sine_lut(int quarter);
-void sine_iir(void);
-void sine_phasor(void);
+void sine_func(int16_t *buf);
+void sine_lut(int16_t *buf, int quarter);
+void sine_iir(int16_t *buf);
+void sine_phasor(int16_t *buf);
 
 /* USER CODE END PFP */
 
@@ -223,7 +220,7 @@ int main(void)
   wm8731_dev.startDacDma(&wm8731_dev); //start audio output
 
   // init buffer
-  sine_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
+  int16_t *sine_buf = (int16_t *)calloc(BUF_SIZE, sizeof(int16_t));
 
   // pre-calc phasor values 
   if(subtask == PHASOR){
@@ -240,15 +237,19 @@ int main(void)
 
   while (1)
   {
-    switch(subtask){ // calc sine in buffer
+    switch(subtask){ // calc sine
       case SINEFUNC:
-        sine_func();
+        sine_buf = sine_func(sine_buf);
+        break;
       case LUT:
-        sine_lut(0); // 0 --> full LUT, 1 --> 1/4th LUT
+        sine_lut(sine_buf, 0); // 0 --> full LUT, 1 --> 1/4th LUT
+        break;
       case IIR:
-        sine_iir();
+        sine_iir(sine_buf);
+        break;
       case PHASOR:
-        sine_phasor();
+        sine_phasor(sine_buf);
+        break;
     }
 
     wm8731_waitOutBuf(&wm8731_dev);
@@ -260,6 +261,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
   }
 
+  // free buffer
   free(sine_buf);
   
   /* USER CODE END 3 */
@@ -322,14 +324,14 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-void sine_func(void){
+void sine_func(int16_t *buf){
   for(int16_t i=0; i < HALF_BUF_SIZE; i++) {
-    sine_buf[i*2] = (int16_t) (sin(2 * PI * (float32_t)(f1)/fs * (i + period_offset*HALF_BUF_SIZE)) * (amplitude * MAX_AMP)); // left channel
-    sine_buf[i*2+1] = (int16_t) (sin(2 * PI * (float32_t)(f2)/fs * (i + period_offset*HALF_BUF_SIZE)) * (amplitude * MAX_AMP)); // right channel
+    buf[i*2] = (int16_t) (sin(2 * PI * (float32_t)(f1)/fs * (i + period_offset*HALF_BUF_SIZE)) * (amplitude * MAX_AMP)); // left channel
+    buf[i*2+1] = (int16_t) (sin(2 * PI * (float32_t)(f2)/fs * (i + period_offset*HALF_BUF_SIZE)) * (amplitude * MAX_AMP)); // right channel
   }
 }
 
-void sine_lut(int quarter){
+void sine_lut(int16_t *buf, int quarter){
   if(quarter){ // only 1/4th of the period saved in LUT
     uint16_t idx_left;
     uint16_t idx_right;
@@ -339,32 +341,32 @@ void sine_lut(int quarter){
       idx_right = (i + period_offset*HALF_BUF_SIZE)*(f2/fmin) % LUT_SIZE; // f2
 
       switch(idx_left / QLUT_SIZE){
-        case 0: sine_buf[2*i] = (int16_t) sine_lut_quarter[idx_left];
-        case 1: sine_buf[2*i] = (int16_t) sine_lut_quarter[2*QLUT_SIZE-1-idx_left];
-        case 2: sine_buf[2*i] = (int16_t) (-sine_lut_quarter[-2*QLUT_SIZE+idx_left]);
-        case 3: sine_buf[2*i] = (int16_t) (-sine_lut_quarter[4*QLUT_SIZE-1-idx_left]);
+        case 0: buf[2*i] = (int16_t) sine_lut_quarter[idx_left]; break;
+        case 1: buf[2*i] = (int16_t) sine_lut_quarter[2*QLUT_SIZE-1-idx_left]; break;
+        case 2: buf[2*i] = (int16_t) (-sine_lut_quarter[-2*QLUT_SIZE+idx_left]); break;
+        case 3: buf[2*i] = (int16_t) (-sine_lut_quarter[4*QLUT_SIZE-1-idx_left]); break;
       }
       switch(idx_right / QLUT_SIZE){
-        case 0: sine_buf[2*i+1] = (int16_t) sine_lut_quarter[idx_right];
-        case 1: sine_buf[2*i+1] = (int16_t) sine_lut_quarter[2*QLUT_SIZE-1-idx_right];
-        case 2: sine_buf[2*i+1] = (int16_t) (-sine_lut_quarter[-2*QLUT_SIZE+idx_right]);
-        case 3: sine_buf[2*i+1] = (int16_t) (-sine_lut_quarter[4*QLUT_SIZE-1-idx_right]);
+        case 0: buf[2*i+1] = (int16_t) sine_lut_quarter[idx_right]; break;
+        case 1: buf[2*i+1] = (int16_t) sine_lut_quarter[2*QLUT_SIZE-1-idx_right]; break;
+        case 2: buf[2*i+1] = (int16_t) (-sine_lut_quarter[-2*QLUT_SIZE+idx_right]); break;
+        case 3: buf[2*i+1] = (int16_t) (-sine_lut_quarter[4*QLUT_SIZE-1-idx_right]); break;
       }
     }
   } else { // complete period in LUT
     for(int16_t i=0; i < HALF_BUF_SIZE; i++) {
-      sine_buf[2*i] = (int16_t) sine_lut[((i + period_offset*HALF_BUF_SIZE)*(f1/fmin)) % LUT_SIZE];
-      sine_buf[2*i+1] = (int16_t) sine_lut[(i + period_offset*HALF_BUF_SIZE)*(f2/fmin) % LUT_SIZE];
+      buf[2*i] = (int16_t) sine_lut[((i + period_offset*HALF_BUF_SIZE)*(f1/fmin)) % LUT_SIZE];
+      buf[2*i+1] = (int16_t) sine_lut[(i + period_offset*HALF_BUF_SIZE)*(f2/fmin) % LUT_SIZE];
     }
   }
 }
 
-void sine_iir(void){
+void sine_iir(int16_t *buf){
   for(int i=0; i < HALF_BUF_SIZE; i++) {
       y_step_1[0] = 2 * 1 * (float64_t) cos(theta_1) * y_step_1[1] - 1 * y_step_1[2] + 1;
       y_step_2[0] = 2 * 1 * (float64_t) cos(theta_2) * y_step_2[1] - 1 * y_step_2[2] + 1;
-      sine_buf[2*i] = (int16_t) (y_step_1[0] * theta_1 * cos(theta_1)-1);
-      sine_buf[2*i+1] = (int16_t) (y_step_2[0] * theta_2 * cos(theta_2)-1);
+      buf[2*i] = (int16_t) (y_step_1[0] * theta_1 * cos(theta_1)-1);
+      buf[2*i+1] = (int16_t) (y_step_2[0] * theta_2 * cos(theta_2)-1);
       y_step_1[2] = y_step_1[1];
       y_step_1[1] = y_step_1[0];
       y_step_2[2] = y_step_2[1];
@@ -372,7 +374,7 @@ void sine_iir(void){
     }
 }
 
-void sine_phasor(void){
+void sine_phasor(int16_t *buf){
   // PHASOR, new, to be testet
   if (period_offset == 0) {
       re_Phi1 = 0.0;
@@ -381,8 +383,8 @@ void sine_phasor(void){
       re_Phi2 = 1.0;
   }
   for(int i=0; i < HALF_BUF_SIZE; i++) {
-    sine_buf[2*i] = (int16_t) (re_Phi1 * MAX_AMP);
-    sine_buf[2*i+1] = (int16_t) (re_Phi2 * MAX_AMP);
+    buf[2*i] = (int16_t) (re_Phi1 * MAX_AMP);
+    buf[2*i+1] = (int16_t) (re_Phi2 * MAX_AMP);
     re_Phi1_old = re_Phi1;
     im_Phi1_old = im_Phi1;
     re_Phi2_old = re_Phi2;
