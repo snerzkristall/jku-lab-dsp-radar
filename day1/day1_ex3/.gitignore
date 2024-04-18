@@ -1,0 +1,13 @@
+# ignore IntelliSense cache folder 
+ipch/
+# ignore built binaries
+build/
+# cubemx stuff
+.mxproject
+
+#cortex debug states
+.cortex-debug.registers.state.json
+.cortex-debug.peripherals.state.json
+
+#vscode file associations
+.vscode/settings.json

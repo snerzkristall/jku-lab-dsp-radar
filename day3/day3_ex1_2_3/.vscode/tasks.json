@@ -1,0 +1,43 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build project",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "type": "shell",
+			"windows": {
+				"command": "${env:ELITEBOARDDIR}/mingw/bin/mingw32-make",
+                "args": [
+                    "GCC_PATH=${env:ELITEBOARDDIR}/gcc/bin/",
+                    "-j4"
+                ]
+			},
+			"linux": {
+                "command": "make",
+                "args": [
+                    "GCC_PATH=${env:ELITEBOARDDIR}/gcc/bin/",
+                    "-j4"
+                ]
+            },
+            "osx": {
+                "command": "make",
+                "args": [
+                    "GCC_PATH=/opt/brew/bin",
+                    "-j4"
+                ]
+			},
+            "problemMatcher": ["$gcc"],
+            "presentation": {
+                "focus": true
+            },
+            "options": {
+                "shell": {
+                    "args": [],
+                    "executable": ""
+                }
+            }
+        }]
+}

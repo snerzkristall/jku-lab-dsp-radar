@@ -1,0 +1,55 @@
+{    
+    "env": {
+        "default_includePath": [
+            "${workspaceFolder}/*",
+            "${workspaceFolder}/Inc/*",
+            "${workspaceFolder}/Drivers/CMSIS/Include/*",
+            "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/*",
+            "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include/*",
+            "${workspaceFolder}/cmsis/**",
+            "${workspaceFolder}/periph_drivers/**"
+        ],
+        "default_defines": [
+            "USE_HAL_DRIVER",
+            "STM32H743xx"
+        ],
+        "default_compilerPath": "${env:ELITEBOARDDIR}/gcc/bin/arm-none-eabi-gcc",
+        "default_compilerArgs": ["-mcpu=cortex-m7", "-mthumb", "-mfloat-abi=hard"],
+        "default_cStandard": "c11",
+        "default_cppStandard": "c++17",
+        "default_intelliSenseMode": "gcc-arm"
+    },
+        "configurations": [
+        {
+            "name": "Linux",
+            "includePath": ["${default_includePath}"],
+            "defines": ["${default_defines}"],
+            "compilerPath": "${default_compilerPath}",
+            "compilerArgs": ["${default_compilerArgs}"],
+            "cStandard": "${default_cStandard}",
+            "cppStandard": "${default_cppStandard}",
+            "intelliSenseMode": "${default_intelliSenseMode}"
+        },
+        {
+            "name": "Win32",
+            "includePath": ["${default_includePath}"],
+            "defines": ["${default_defines}"],
+            "compilerPath": "${default_compilerPath}",
+            "compilerArgs": ["${default_compilerArgs}"],
+            "cStandard": "${default_cStandard}",
+            "cppStandard": "${default_cppStandard}",
+            "intelliSenseMode": "${default_intelliSenseMode}"
+        },
+        {
+            "name": "osx",
+            "includePath": ["${default_includePath}"],
+            "defines": ["${default_defines}"],
+            "compilerPath": "${default_compilerPath}",
+            "compilerArgs": ["${default_compilerArgs}"],
+            "cStandard": "${default_cStandard}",
+            "cppStandard": "${default_cppStandard}",
+            "intelliSenseMode": "${default_intelliSenseMode}"
+        }
+    ],
+    "version": 4
+}

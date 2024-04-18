@@ -1,0 +1,77 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Cortex debug",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "bmp",
+            "BMPGDBSerialPort": "dummy",
+			"linux": {
+			    "armToolchainPath": "${env:ELITEBOARDDIR}/gcc/bin/",
+				"BMPGDBSerialPort": "/dev/ttyACM0",
+                "preLaunchCommands": ["mon connect_srst enable","mon hard_srst","mon swdp_scan","att 1","load"] /*activate srst and reattach+load*/
+			},
+			"windows": {
+			    "armToolchainPath": "${env:ELITEBOARDDIR}/gcc/bin/",
+                "BMPGDBSerialPort": "\\\\.\\COM12", /*If any of your ports are 10 or over, use this format: \\.\COM10*/
+                "preLaunchCommands": ["mon connect_srst enable","mon hard_srst","mon swdp_scan","att 1","load"], /*activate srst and reattach+load*/
+            },
+            "osx": {
+			    "armToolchainPath": "/opt/brew/bin/",
+                "BMPGDBSerialPort": "/dev/cu.usbmodem79A580A31", /*If any of your ports are 10 or over, use this format: \\.\COM10*/
+                "preLaunchCommands": ["mon connect_srst enable","mon hard_srst","mon swdp_scan","att 1","load"], /*activate srst and reattach+load*/
+            },
+            "runToEntryPoint": "main",
+            /*"interface": "jtag",*/ /*swdp works much better*/
+            "cwd": "${workspaceFolder}",
+            "executable": "./build/eliteboard_v1.elf",
+            "svdFile": "./STM32H743x.svd",
+            "preLaunchTask": "Build project"
+            /*"graphConfig":
+            [
+                {
+                    "type": "realtime",
+                    "label": "myplot",
+                    "annotate": true,
+                    "plots": [
+                        {
+                            "graphId": "0",
+                            "label": "graph0",
+                            "color": "#000000"
+                        }
+                    ],
+                    "minimum": -655,
+                    "maximum": 655,
+                }
+            ],
+            "swoConfig":
+            {
+                "enabled": true,
+                "source": "probe",
+                "swoFrequency": 950000,
+                "cpuFrequency": 72000000,
+                "decoders": [
+                    {
+                        "type": "graph",
+                        "port": 0,
+                        "label": "graph0",
+                        "encoding": "unsigned",
+                        "graphId": "0",
+                        "scale": 1,
+                    },
+                    {
+                        "type": "console",
+                        "port": 0,
+                        "encoding": "utf8",
+                        "label": "testlabel",
+                    }
+
+                ]
+            },*/
+        }
+    ]
+}
